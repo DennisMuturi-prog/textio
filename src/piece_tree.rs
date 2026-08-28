@@ -1,4 +1,4 @@
-struct PieceTree {
+pub struct PieceTree {
     original: String,
     add: String,
     nodes: Vec<Node>,
@@ -6,6 +6,7 @@ struct PieceTree {
 }
 
 struct Node {
+    #[allow(dead_code)]
     index: usize,
     buffer_type: BufferType,
     color: Color,
@@ -413,14 +414,16 @@ impl PieceTree {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum BufferType {
     Original,
     Add,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Color {
     Red,
     Black,
 }
+
+
