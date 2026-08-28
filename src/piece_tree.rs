@@ -346,6 +346,26 @@ impl PieceTree {
         let new_node = self.pre_insert(content);
         self.insert_into_tree(new_node, index);
     }
+    fn insert_node_before(&mut self, target_node: usize, new_node: usize) {
+        self.nodes[new_node].left = None;
+        self.nodes[new_node].right = None;
+        self.nodes[new_node].color = Color::Red;
+
+        if self.nodes[target_node].left.is_none() {
+            self.nodes[target_node].left = Some(new_node);
+            self.nodes[new_node].parent = Some(target_node);
+        } else {
+            let mut curr = self.nodes[target_node].left.unwrap();
+            while let Some(right) = self.nodes[curr].right {
+                curr = right;
+            }
+            self.nodes[curr].right = Some(new_node);
+            self.nodes[new_node].parent = Some(curr);
+        }
+
+        self.update_ancestors(self.nodes[new_node].parent);
+        self.insert_fix(new_node);
+    }
     fn insert_into_tree(&mut self, new_node: usize, mut index: usize) {
         let root = match self.root_node {
             Some(r) => r,
@@ -392,25 +412,35 @@ impl PieceTree {
             }
         }
     }
-    fn insert_node_before(&mut self, target_node: usize, new_node: usize) {
-        self.nodes[new_node].left = None;
-        self.nodes[new_node].right = None;
-        self.nodes[new_node].color = Color::Red;
+    fn delete_node(&mut self,index:usize,node:usize,length:usize){
+        if index==0 && length<self.nodes[node].length{}
 
-        if self.nodes[target_node].left.is_none() {
-            self.nodes[target_node].left = Some(new_node);
-            self.nodes[new_node].parent = Some(target_node);
-        } else {
-            let mut curr = self.nodes[target_node].left.unwrap();
-            while let Some(right) = self.nodes[curr].right {
-                curr = right;
+    }
+
+    fn delete(&mut self, index: usize, length: usize) {
+        let mut index= index;
+        let mut parent_node: Option<usize> = None;
+        let mut current_node = self.root_node;
+        while let Some(curr) = current_node {
+            let left_len = self.nodes[curr].left_subtree_length;
+            let node_len = self.nodes[curr].length;
+
+            if index < left_len {
+                current_node= self.nodes[curr].left;
+            } else if index >= left_len + node_len {
+                index -= left_len + node_len;
+                current_node = self.nodes[curr].right;
+            } else {
+                // Node found!
+                let offset = index - left_len;
+                if offset == 0 {
+                    
+                } else {
+                    
+                }
+                break;
             }
-            self.nodes[curr].right = Some(new_node);
-            self.nodes[new_node].parent = Some(curr);
         }
-
-        self.update_ancestors(self.nodes[new_node].parent);
-        self.insert_fix(new_node);
     }
 }
 
@@ -425,5 +455,3 @@ enum Color {
     Red,
     Black,
 }
-
-
