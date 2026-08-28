@@ -35,6 +35,45 @@ impl Node {
 }
 
 impl PieceTree {
+    pub fn new(original: &str) -> Self {
+        if !original.is_empty() {
+            let mut root = Node::new(0, BufferType::Original, 0, original.len());
+            root.color = Color::Black;
+            Self {
+                original: String::from(original),
+                add: String::new(),
+                nodes: vec![root],
+                root_node: Some(0),
+            }
+        } else {
+            Self {
+                original: String::from(original),
+                add: String::new(),
+                nodes: Vec::new(),
+                root_node: None,
+            }
+        }
+    }
+    pub fn get_text(&self) -> String {
+        let mut result = String::new();
+        self.in_order(self.root_node, &mut result);
+        result
+    }
+
+    fn in_order(&self, node_idx: Option<usize>, out: &mut String) {
+        if let Some(idx) = node_idx {
+            let node = &self.nodes[idx];
+            self.in_order(node.left, out);
+
+            let buffer = match node.buffer_type {
+                BufferType::Original => &self.original,
+                BufferType::Add => &self.add,
+            };
+            out.push_str(&buffer[node.start..node.start + node.length]);
+
+            self.in_order(node.right, out);
+        }
+    }
     fn update_subtree_length(&mut self, node_idx: usize) {
         let node = &self.nodes[node_idx];
         let left_len = node.left.map_or(0, |l| self.nodes[l].subtree_length);
@@ -173,7 +212,7 @@ impl PieceTree {
         self.update_ancestors(self.nodes[new_node].parent);
 
         // 2. Fix red-black tree invariants (rotations & recoloring)
-        self.insert_fixup(new_node);
+        self.insert_fix(new_node);
     }
 
     /// Walk up the parent chain and update lengths
@@ -186,16 +225,15 @@ impl PieceTree {
 
     fn insert_fix(&mut self, current_node: usize) {
         let mut current_node = current_node;
-        let mut parent = match self.nodes[current_node].parent {
-            Some(p) => p,
-            None => {
-                if let Some(root) = self.root_node {
-                    self.nodes[root].color = Color::Black;
+        while Some(current_node) != self.root_node
+            && self.nodes[self.nodes[current_node].parent.unwrap()].color == Color::Red
+        {
+            let mut parent = match self.nodes[current_node].parent {
+                Some(p) => p,
+                None => {
+                    break;
                 }
-                return;
-            }
-        };
-        while self.nodes[parent].color == Color::Red {
+            };
             let mut grand_parent = match self.nodes[parent].parent {
                 Some(p) => p,
                 None => {
@@ -212,12 +250,6 @@ impl PieceTree {
                     };
                     self.nodes[grand_parent].color = Color::Red;
                     current_node = grand_parent;
-                    parent = match self.nodes[current_node].parent {
-                        Some(p) => p,
-                        None => {
-                            break;
-                        }
-                    };
                 } else {
                     if self.nodes[parent].right == Some(current_node) {
                         current_node = parent;
@@ -239,12 +271,6 @@ impl PieceTree {
 
                     self.nodes[grand_parent].color = Color::Red;
                     self.right_rotate(grand_parent);
-                    parent = match self.nodes[current_node].parent {
-                        Some(p) => p,
-                        None => {
-                            break;
-                        }
-                    };
                 }
             } else {
                 if let Some(left) = self.nodes[grand_parent].left
@@ -256,12 +282,6 @@ impl PieceTree {
                     };
                     self.nodes[grand_parent].color = Color::Red;
                     current_node = grand_parent;
-                    parent = match self.nodes[current_node].parent {
-                        Some(p) => p,
-                        None => {
-                            break;
-                        }
-                    };
                 } else {
                     if self.nodes[parent].left == Some(current_node) {
                         current_node = parent;
@@ -284,12 +304,6 @@ impl PieceTree {
 
                     self.nodes[grand_parent].color = Color::Red;
                     self.left_rotate(grand_parent);
-                    parent = match self.nodes[current_node].parent {
-                        Some(p) => p,
-                        None => {
-                            break;
-                        }
-                    };
                 }
             }
         }
@@ -297,68 +311,7 @@ impl PieceTree {
             self.nodes[root].color = Color::Black;
         }
     }
-    fn insert_fixup(&mut self, mut z: usize) {
-        while let Some(parent) = self.nodes[z].parent {
-            if matches!(self.nodes[parent].color, Color::Black) {
-                break;
-            }
 
-            // Parent is Red -> Grandparent must exist
-            let grandparent = match self.nodes[parent].parent {
-                Some(gp) => gp,
-                None => break,
-            };
-
-            if Some(parent) == self.nodes[grandparent].left {
-                let uncle = self.nodes[grandparent].right;
-                if uncle.map_or(false, |u| matches!(self.nodes[u].color, Color::Red)) {
-                    // Case 1: Uncle is Red -> Recolor
-                    let u = uncle.unwrap();
-                    self.nodes[parent].color = Color::Black;
-                    self.nodes[u].color = Color::Black;
-                    self.nodes[grandparent].color = Color::Red;
-                    z = grandparent;
-                } else {
-                    // Case 2: Uncle is Black and z is right child -> Left rotate
-                    if Some(z) == self.nodes[parent].right {
-                        z = parent;
-                        self.left_rotate(z);
-                    }
-                    // Case 3: Uncle is Black and z is left child -> Right rotate
-                    let parent = self.nodes[z].parent.unwrap();
-                    let grandparent = self.nodes[parent].parent.unwrap();
-                    self.nodes[parent].color = Color::Black;
-                    self.nodes[grandparent].color = Color::Red;
-                    self.right_rotate(grandparent);
-                }
-            } else {
-                // Symmetric case: parent is right child of grandparent
-                let uncle = self.nodes[grandparent].left;
-                if uncle.map_or(false, |u| matches!(self.nodes[u].color, Color::Red)) {
-                    let u = uncle.unwrap();
-                    self.nodes[parent].color = Color::Black;
-                    self.nodes[u].color = Color::Black;
-                    self.nodes[grandparent].color = Color::Red;
-                    z = grandparent;
-                } else {
-                    if Some(z) == self.nodes[parent].left {
-                        z = parent;
-                        self.right_rotate(z);
-                    }
-                    let parent = self.nodes[z].parent.unwrap();
-                    let grandparent = self.nodes[parent].parent.unwrap();
-                    self.nodes[parent].color = Color::Black;
-                    self.nodes[grandparent].color = Color::Red;
-                    self.left_rotate(grandparent);
-                }
-            }
-        }
-
-        // Root must always be Black
-        if let Some(root) = self.root_node {
-            self.nodes[root].color = Color::Black;
-        }
-    }
     fn split_and_insert(&mut self, index: usize, curr_node_idx: usize, new_node: usize) {
         let offset_in_node = index - self.nodes[curr_node_idx].left_subtree_length;
 
@@ -369,6 +322,7 @@ impl PieceTree {
 
             // 1. Shorten left piece in-place
             self.nodes[curr_node_idx].length = offset_in_node;
+            self.update_subtree_length(curr_node_idx);
 
             // 2. Create right piece
             let right_node_idx = self.nodes.len();
@@ -384,59 +338,78 @@ impl PieceTree {
             self.insert_node_after(new_node, right_node_idx);
         }
     }
-    fn insert_into_tree(&mut self, new_node: usize, index: usize) {
-        let mut index = index;
-        if self.root_node.is_none() {
-            self.nodes[new_node].color = Color::Black;
-            self.root_node = Some(new_node);
+    pub fn insert(&mut self, index: usize, content: &str) {
+        if content.is_empty() {
             return;
         }
-        let mut current_node_index = self.root_node;
+        let new_node = self.pre_insert(content);
+        self.insert_into_tree(new_node, index);
+    }
+    fn insert_into_tree(&mut self, new_node: usize, mut index: usize) {
+        let root = match self.root_node {
+            Some(r) => r,
+            None => {
+                // Empty tree: new_node becomes the black root
+                self.nodes[new_node].color = Color::Black;
+                self.root_node = Some(new_node);
+                return;
+            }
+        };
 
-        while let Some(curr_node_idx) = current_node_index {
-            if self.nodes[curr_node_idx].left.is_none() && self.nodes[curr_node_idx].right.is_none()
-            {
-                if index < self.nodes[curr_node_idx].left_subtree_length {
-                    self.nodes[curr_node_idx].left = Some(new_node);
-                    self.nodes[new_node].parent = Some(curr_node_idx);
-                } else if index >= self.nodes[curr_node_idx].left_subtree_length
-                    && index
-                        < self.nodes[curr_node_idx].left_subtree_length
-                            + self.nodes[curr_node_idx].length
-                {
-                    let offset_in_node = index - self.nodes[curr_node_idx].left_subtree_length;
-                    if offset_in_node == 0 {
-                        self.nodes[curr_node_idx].left = Some(new_node);
-                        self.nodes[new_node].parent = Some(curr_node_idx);
-                    } else {
-                        self.split_and_insert(index, curr_node_idx, new_node);
-                    }
+        // Case 1: Inserting at or past the end of the entire document
+        if index >= self.nodes[root].subtree_length {
+            let mut rightmost = root;
+            while let Some(r) = self.nodes[rightmost].right {
+                rightmost = r;
+            }
+            self.insert_node_after(rightmost, new_node);
+            return;
+        }
+
+        // Case 2: Traverse to find the exact piece containing `index`
+        let mut curr = root;
+        loop {
+            let left_len = self.nodes[curr].left_subtree_length;
+            let node_len = self.nodes[curr].length;
+
+            if index < left_len {
+                curr = self.nodes[curr].left.unwrap();
+            } else if index >= left_len + node_len {
+                index -= left_len + node_len;
+                curr = self.nodes[curr].right.unwrap();
+            } else {
+                // Node found!
+                let offset = index - left_len;
+                if offset == 0 {
+                    // Non-split: Insert before this piece
+                    self.insert_node_before(curr, new_node);
                 } else {
-                    self.nodes[curr_node_idx].right = Some(new_node);
-                    self.nodes[new_node].parent = Some(curr_node_idx);
+                    // Split: Insert in the middle of this piece
+                    self.split_and_insert(index, curr, new_node);
                 }
                 break;
             }
-            if index < self.nodes[curr_node_idx].left_subtree_length {
-                current_node_index = self.nodes[curr_node_idx].left;
-            } else if index >= self.nodes[curr_node_idx].left_subtree_length
-                && index
-                    < self.nodes[curr_node_idx].left_subtree_length
-                        + self.nodes[curr_node_idx].length
-            {
-                let offset_in_node = index - self.nodes[curr_node_idx].left_subtree_length;
-                if offset_in_node == 0 {
-                    current_node_index = self.nodes[curr_node_idx].left;
-                } else {
-                    self.split_and_insert(index, curr_node_idx, new_node);
-                    break;
-                }
-            } else {
-                current_node_index = self.nodes[curr_node_idx].right;
-                index -= self.nodes[curr_node_idx].left_subtree_length
-                    + self.nodes[curr_node_idx].length;
-            }
         }
+    }
+    fn insert_node_before(&mut self, target_node: usize, new_node: usize) {
+        self.nodes[new_node].left = None;
+        self.nodes[new_node].right = None;
+        self.nodes[new_node].color = Color::Red;
+
+        if self.nodes[target_node].left.is_none() {
+            self.nodes[target_node].left = Some(new_node);
+            self.nodes[new_node].parent = Some(target_node);
+        } else {
+            let mut curr = self.nodes[target_node].left.unwrap();
+            while let Some(right) = self.nodes[curr].right {
+                curr = right;
+            }
+            self.nodes[curr].right = Some(new_node);
+            self.nodes[new_node].parent = Some(curr);
+        }
+
+        self.update_ancestors(self.nodes[new_node].parent);
+        self.insert_fix(new_node);
     }
 }
 
