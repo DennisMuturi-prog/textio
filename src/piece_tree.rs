@@ -638,6 +638,7 @@ impl RedBlackTree {
         t1.insert_fix(nodes, v);
         t1
     }
+    fn split(&mut self,)
 }
 
 struct Node {
@@ -688,7 +689,11 @@ impl PieceTree {
         }
     }
     pub fn get_text(&self) -> String {
-        let mut result = String::new();
+        let capacity = match self.red_black_tree.root_node {
+            Some(root) => self.nodes[root].subtree_length,
+            None => return String::new(),
+        };
+        let mut result = String::with_capacity(capacity);
         self.in_order(self.red_black_tree.root_node, &mut result);
         result
     }
@@ -716,32 +721,15 @@ impl PieceTree {
     }
 
     fn pre_insert(&mut self, content: &str) -> usize {
-        match self.red_black_tree.root_node {
-            Some(_) => {
-                let previous_buffer_len = self.add.len();
-                let previous_nodes_len = self.nodes.len();
-
-                self.add.push_str(content);
-                self.nodes.push(Node::new(
-                    BufferType::Add,
-                    previous_buffer_len,
-                    content.len(),
-                ));
-                previous_nodes_len
-            }
-            None => {
-                let previous_buffer_len = self.original.len();
-
-                self.original.push_str(content);
-                let previous_nodes_len = self.nodes.len();
-                self.nodes.push(Node::new(
-                    BufferType::Original,
-                    previous_buffer_len,
-                    content.len(),
-                ));
-                previous_nodes_len
-            }
-        }
+        let previous_buffer_len = self.add.len();
+        let previous_nodes_len = self.nodes.len();
+        self.add.push_str(content);
+        self.nodes.push(Node::new(
+            BufferType::Add,
+            previous_buffer_len,
+            content.len(),
+        ));
+        previous_nodes_len
     }
 }
 
