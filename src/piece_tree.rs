@@ -106,7 +106,7 @@ impl RedBlackTree {
         let mut z = z;
         while nodes[z].parent != 0 && nodes[nodes[z].parent].color == Color::Red {
             if nodes[z].parent == nodes[nodes[nodes[z].parent].parent].left {
-                let mut y = nodes[nodes[nodes[z].parent].parent].right;
+                let y = nodes[nodes[nodes[z].parent].parent].right;
                 if nodes[y].color == Color::Red {
                     nodes[nodes[z].parent].color = Color::Black;
                     nodes[y].color = Color::Black;
@@ -122,7 +122,7 @@ impl RedBlackTree {
                     self.right_rotate(nodes, nodes[nodes[z].parent].parent);
                 }
             } else {
-                let mut y = nodes[nodes[nodes[z].parent].parent].left;
+                let y = nodes[nodes[nodes[z].parent].parent].left;
                 if nodes[y].color == Color::Red {
                     nodes[nodes[z].parent].color = Color::Black;
                     nodes[y].color = Color::Black;
@@ -266,6 +266,8 @@ impl RedBlackTree {
             nodes[y].left = nodes[z].left;
             nodes[nodes[y].left].parent = y;
             nodes[y].color = nodes[z].color;
+            Self::update_subtree_length(nodes, y);
+            Self::update_ancestors(nodes, nodes[y].parent);
         }
         if y_orig_color == Color::Black {
             self.delete_fix(nodes, x);
@@ -367,9 +369,7 @@ impl RedBlackTree {
         } else {
             nodes[nodes[u].parent].right = v;
         }
-        nodes[v].parent = nodes[u].parent;
-        Self::update_subtree_length(nodes, v);
-        Self::update_ancestors(nodes, v);
+        nodes[v].parent = nodes[u].parent; 
     }
 
     fn catenate(nodes: &mut [Node], t1: RedBlackTree, t2: RedBlackTree) -> RedBlackTree {
@@ -525,6 +525,7 @@ impl PieceTree {
         ));
         previous_nodes_len
     }
+    pub fn delete(&mut self,index:usize,length:usize){}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
