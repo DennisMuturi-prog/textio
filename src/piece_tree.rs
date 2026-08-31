@@ -308,6 +308,9 @@ impl RedBlackTree {
                 {
                     nodes[w].color = Color::Red;
                     x = nodes[x].parent;
+                    if x == self.root_node {
+                        self.black_height -= 1;
+                    }
                 } else {
                     if nodes[nodes[w].right].color == Color::Black {
                         nodes[nodes[w].left].color = Color::Black;
@@ -334,6 +337,9 @@ impl RedBlackTree {
                 {
                     nodes[w].color = Color::Red;
                     x = nodes[x].parent;
+                    if x == self.root_node {
+                        self.black_height -= 1;
+                    }
                 } else {
                     if nodes[nodes[w].left].color == Color::Black {
                         nodes[nodes[w].right].color = Color::Black;
@@ -349,10 +355,12 @@ impl RedBlackTree {
                 }
             }
         }
-        if x == self.root_node {
-            self.black_height -= 1;
+        if nodes[x].color == Color::Red {
+            nodes[x].color = Color::Black;
+            if x == self.root_node{
+                self.black_height+=1;
+            }
         }
-        nodes[x].color = Color::Black;
     }
     fn minimum(nodes: &[Node], x: usize) -> usize {
         let mut left_most = x;
@@ -369,7 +377,7 @@ impl RedBlackTree {
         } else {
             nodes[nodes[u].parent].right = v;
         }
-        nodes[v].parent = nodes[u].parent; 
+        nodes[v].parent = nodes[u].parent;
     }
 
     fn catenate(nodes: &mut [Node], t1: RedBlackTree, t2: RedBlackTree) -> RedBlackTree {
@@ -525,7 +533,7 @@ impl PieceTree {
         ));
         previous_nodes_len
     }
-    pub fn delete(&mut self,index:usize,length:usize){}
+    pub fn delete(&mut self, index: usize, length: usize) {}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
