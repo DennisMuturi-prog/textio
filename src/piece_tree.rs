@@ -62,8 +62,8 @@ impl RedBlackTree {
         }
         nodes[y].right = x;
         nodes[x].parent = y;
-        Self::update_subtree_length(nodes, y);
         Self::update_subtree_length(nodes, x);
+        Self::update_subtree_length(nodes, y);
     }
     fn insert_node_after(&mut self, nodes: &mut [Node], target_node: usize, new_node: usize) {
         // Reset new_node connections
@@ -242,9 +242,8 @@ impl RedBlackTree {
         }
     }
     fn delete_node(&mut self, nodes: &mut [Node], z: usize) {
-        let mut y_orig_color = nodes[z].color;
         let mut y = z;
-        let mut x: usize;
+        let x: usize;
         let mut y_orig_color = nodes[y].color;
         if nodes[z].left == 0 {
             x = nodes[z].right;
@@ -282,7 +281,7 @@ impl RedBlackTree {
             z = current_node;
             current_node = nodes[current_node].left;
         }
-        
+
         self.delete_node(nodes, z);
 
         // Isolate detached node
@@ -369,6 +368,8 @@ impl RedBlackTree {
             nodes[nodes[u].parent].right = v;
         }
         nodes[v].parent = nodes[u].parent;
+        Self::update_subtree_length(nodes, v);
+        Self::update_ancestors(nodes, v);
     }
 
     fn catenate(nodes: &mut [Node], t1: RedBlackTree, t2: RedBlackTree) -> RedBlackTree {
@@ -381,12 +382,11 @@ impl RedBlackTree {
         let mut t1 = t1;
         let mut t2 = t2;
         let v = t2.detach_leftmost_node(nodes);
-        if v == 0{
-             return RedBlackTree {
-                    black_height: 0,
-                    root_node: 0,
-                };
-
+        if v == 0 {
+            return RedBlackTree {
+                black_height: 0,
+                root_node: 0,
+            };
         }
         if t2.root_node == 0 {
             // Find rightmost node of T1
@@ -461,7 +461,8 @@ impl Node {
 impl PieceTree {
     pub fn new(original: &str) -> Self {
         if !original.is_empty() {
-            let nil_node = Node::new(BufferType::Original, 0, 0);
+            let mut nil_node = Node::new(BufferType::Original, 0, 0);
+            nil_node.color = Color::Black;
             let mut root = Node::new(BufferType::Original, 0, original.len());
             root.color = Color::Black;
             Self {
@@ -471,7 +472,8 @@ impl PieceTree {
                 red_black_tree: RedBlackTree::new(1, 1),
             }
         } else {
-            let nil_node = Node::new(BufferType::Original, 0, 0);
+            let mut nil_node = Node::new(BufferType::Original, 0, 0);
+            nil_node.color = Color::Black;
             Self {
                 original: String::from(original),
                 add: String::new(),
@@ -481,10 +483,10 @@ impl PieceTree {
         }
     }
     pub fn get_text(&self) -> String {
-        if self.red_black_tree.root_node == 0{
+        if self.red_black_tree.root_node == 0 {
             return String::new();
         }
-        let capacity = self.nodes[self.red_black_tree.root_node].subtree_length; 
+        let capacity = self.nodes[self.red_black_tree.root_node].subtree_length;
         let mut result = String::with_capacity(capacity);
         self.in_order(self.red_black_tree.root_node, &mut result);
         result
