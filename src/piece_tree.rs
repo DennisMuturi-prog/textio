@@ -7,11 +7,11 @@ pub struct PieceTree {
 
 struct RedBlackTree {
     black_height: usize,
-    root_node: Option<usize>,
+    root_node: usize,
 }
 
 impl RedBlackTree {
-    fn new(black_height: usize, root_node: Option<usize>) -> Self {
+    fn new(black_height: usize, root_node: usize) -> Self {
         Self {
             black_height,
             root_node,
@@ -20,106 +20,71 @@ impl RedBlackTree {
 
     fn update_subtree_length(nodes: &mut [Node], node_idx: usize) {
         let node = &nodes[node_idx];
-        let left_len = node.left.map_or(0, |l| nodes[l].subtree_length);
-        let right_len = node.right.map_or(0, |r| nodes[r].subtree_length);
+        let left_len = nodes[node.left].subtree_length;
+        let right_len = nodes[node.right].subtree_length;
         nodes[node_idx].subtree_length = left_len + right_len + nodes[node_idx].length;
         nodes[node_idx].left_subtree_length = left_len;
     }
 
     fn left_rotate(&mut self, nodes: &mut [Node], x: usize) {
-        let y = match nodes[x].right {
-            Some(index) => index,
-            None => return,
-        };
-        let y_left = nodes[y].left;
-        nodes[x].right = y_left;
-        if let Some(y_l) = y_left {
-            nodes[y_l].parent = Some(x);
+        let y = nodes[x].right;
+        nodes[x].right = nodes[y].left;
+        if nodes[y].left != 0 {
+            nodes[nodes[y].left].parent = x;
         }
-        let x_parent = nodes[x].parent;
-        nodes[y].parent = x_parent;
-        match x_parent {
-            Some(parent) => {
-                if nodes[parent].left == Some(x) {
-                    nodes[parent].left = Some(y);
-                } else if nodes[parent].right == Some(x) {
-                    nodes[parent].right = Some(y);
-                } else {
-                    if nodes[parent].left.is_none() && nodes[parent].right.is_none() {
-                        panic!("a parent cannot have empty children {parent}")
-                    } else {
-                        panic!(
-                            "indices mismatch  parent {parent} left {:?} right {:?} x {x}",
-                            nodes[parent].left, nodes[parent].right
-                        )
-                    }
-                }
-            }
-            None => {
-                self.root_node = Some(y);
-            }
+        nodes[y].parent = nodes[x].parent;
+        if nodes[x].parent == 0 {
+            self.root_node = y;
+        } else if x == nodes[nodes[x].parent].left {
+            nodes[nodes[x].parent].left = y;
+        } else {
+            nodes[nodes[x].parent].right = y;
         }
-        nodes[y].left = Some(x);
-        nodes[x].parent = Some(y);
+
+        nodes[y].left = x;
+        nodes[x].parent = y;
         Self::update_subtree_length(nodes, x);
         Self::update_subtree_length(nodes, y);
     }
-    fn right_rotate(&mut self, nodes: &mut [Node], y: usize) {
-        let x = match nodes[y].left {
-            Some(index) => index,
-            None => return,
-        };
-        let x_right = nodes[x].right;
-        nodes[y].left = x_right;
-        if let Some(x_r) = x_right {
-            nodes[x_r].parent = Some(y);
+    fn right_rotate(&mut self, nodes: &mut [Node], x: usize) {
+        let y = nodes[x].left;
+        nodes[x].left = nodes[y].right;
+        if nodes[y].right != 0 {
+            nodes[nodes[y].right].parent = x;
         }
-        let y_parent = nodes[y].parent;
-        nodes[x].parent = y_parent;
-        match y_parent {
-            Some(parent) => {
-                if nodes[parent].left == Some(y) {
-                    nodes[parent].left = Some(x);
-                } else if nodes[parent].right == Some(y) {
-                    nodes[parent].right = Some(x);
-                } else {
-                    if nodes[parent].left.is_none() && nodes[parent].right.is_none() {
-                        panic!("a parent cannot have empty children {parent}")
-                    } else {
-                        panic!(
-                            "indices mismatch  parent {parent} left {:?} right {:?} y {y}",
-                            nodes[parent].left, nodes[parent].right
-                        )
-                    }
-                }
-            }
-            None => {
-                self.root_node = Some(x);
-            }
+        nodes[y].parent = nodes[x].parent;
+        if nodes[y].parent == 0 {
+            self.root_node = y;
+        } else if x == nodes[nodes[x].parent].right {
+            nodes[nodes[x].parent].right = y;
+        } else {
+            nodes[nodes[x].parent].left = y;
         }
-        nodes[x].right = Some(y);
-        nodes[y].parent = Some(x);
+        nodes[y].right = x;
+        nodes[x].parent = y;
         Self::update_subtree_length(nodes, y);
         Self::update_subtree_length(nodes, x);
     }
     fn insert_node_after(&mut self, nodes: &mut [Node], target_node: usize, new_node: usize) {
         // Reset new_node connections
-        nodes[new_node].left = None;
-        nodes[new_node].right = None;
+        nodes[new_node].left = 0;
+        nodes[new_node].right = 0;
         nodes[new_node].color = Color::Red;
 
-        if nodes[target_node].right.is_none() {
+        if nodes[target_node].right == 0 {
             // Case 1: Target has no right child, attach directly as right child
-            nodes[target_node].right = Some(new_node);
-            nodes[new_node].parent = Some(target_node);
+            nodes[target_node].right = new_node;
+            nodes[new_node].parent = target_node;
         } else {
             // Case 2: Target has a right child, attach as leftmost child of the right subtree
-            let mut curr = nodes[target_node].right.unwrap();
-            while let Some(left) = nodes[curr].left {
-                curr = left;
+            let mut curr = nodes[target_node].right;
+            let mut dest = 0;
+            while curr != 0 {
+                dest = curr;
+                curr = nodes[curr].left;
             }
-            nodes[curr].left = Some(new_node);
-            nodes[new_node].parent = Some(curr);
+            nodes[dest].left = new_node;
+            nodes[new_node].parent = dest;
         }
 
         // 1. Update subtree lengths from new_node's parent up to root
@@ -130,103 +95,57 @@ impl RedBlackTree {
     }
 
     /// Walk up the parent chain and update lengths
-    fn update_ancestors(nodes: &mut [Node], mut curr: Option<usize>) {
-        while let Some(node_idx) = curr {
-            Self::update_subtree_length(nodes, node_idx);
-            curr = nodes[node_idx].parent;
+    fn update_ancestors(nodes: &mut [Node], mut curr: usize) {
+        while curr != 0 {
+            Self::update_subtree_length(nodes, curr);
+            curr = nodes[curr].parent;
         }
     }
 
-    fn insert_fix(&mut self, nodes: &mut [Node], current_node: usize) {
-        let mut current_node = current_node;
-        while Some(current_node) != self.root_node
-            && nodes[nodes[current_node].parent.unwrap()].color == Color::Red
-        {
-            let mut parent = match nodes[current_node].parent {
-                Some(p) => p,
-                None => {
-                    break;
-                }
-            };
-            let mut grand_parent = match nodes[parent].parent {
-                Some(p) => p,
-                None => {
-                    break;
-                }
-            };
-            if nodes[grand_parent].left == Some(parent) {
-                if let Some(right) = nodes[grand_parent].right
-                    && nodes[right].color == Color::Red
-                {
-                    nodes[right].color = Color::Black;
-                    if let Some(left) = nodes[grand_parent].left {
-                        nodes[left].color = Color::Black;
-                    };
-                    nodes[grand_parent].color = Color::Red;
-                    current_node = grand_parent;
+    fn insert_fix(&mut self, nodes: &mut [Node], z: usize) {
+        let mut z = z;
+        while nodes[z].parent != 0 && nodes[nodes[z].parent].color == Color::Red {
+            if nodes[z].parent == nodes[nodes[nodes[z].parent].parent].left {
+                let mut y = nodes[nodes[nodes[z].parent].parent].right;
+                if nodes[y].color == Color::Red {
+                    nodes[nodes[z].parent].color = Color::Black;
+                    nodes[y].color = Color::Black;
+                    nodes[nodes[nodes[z].parent].parent].color = Color::Red;
+                    z = nodes[nodes[z].parent].parent;
                 } else {
-                    if nodes[parent].right == Some(current_node) {
-                        current_node = parent;
-                        self.left_rotate(nodes, current_node);
-                        parent = match nodes[current_node].parent {
-                            Some(p) => p,
-                            None => {
-                                break;
-                            }
-                        };
-                        grand_parent = match nodes[parent].parent {
-                            Some(p) => p,
-                            None => {
-                                break;
-                            }
-                        };
+                    if z == nodes[nodes[z].parent].right {
+                        z = nodes[z].parent;
+                        self.left_rotate(nodes, z);
                     }
-                    nodes[parent].color = Color::Black;
-
-                    nodes[grand_parent].color = Color::Red;
-                    self.right_rotate(nodes, grand_parent);
+                    nodes[nodes[z].parent].color = Color::Black;
+                    nodes[nodes[nodes[z].parent].parent].color = Color::Red;
+                    self.right_rotate(nodes, nodes[nodes[z].parent].parent);
                 }
             } else {
-                if let Some(left) = nodes[grand_parent].left
-                    && nodes[left].color == Color::Red
-                {
-                    nodes[left].color = Color::Black;
-                    if let Some(right) = nodes[grand_parent].right {
-                        nodes[right].color = Color::Black;
-                    };
-                    nodes[grand_parent].color = Color::Red;
-                    current_node = grand_parent;
+                let mut y = nodes[nodes[nodes[z].parent].parent].left;
+                if nodes[y].color == Color::Red {
+                    nodes[nodes[z].parent].color = Color::Black;
+                    nodes[y].color = Color::Black;
+                    nodes[nodes[nodes[z].parent].parent].color = Color::Red;
+                    z = nodes[nodes[z].parent].parent;
                 } else {
-                    if nodes[parent].left == Some(current_node) {
-                        current_node = parent;
-                        self.right_rotate(nodes, current_node);
-                        parent = match nodes[current_node].parent {
-                            Some(p) => p,
-                            None => {
-                                break;
-                            }
-                        };
-                        grand_parent = match nodes[parent].parent {
-                            Some(p) => p,
-                            None => {
-                                break;
-                            }
-                        };
+                    if z == nodes[nodes[z].parent].left {
+                        z = nodes[z].parent;
+                        self.right_rotate(nodes, z);
                     }
-
-                    nodes[parent].color = Color::Black;
-
-                    nodes[grand_parent].color = Color::Red;
-                    self.left_rotate(nodes, grand_parent);
+                    nodes[nodes[z].parent].color = Color::Black;
+                    nodes[nodes[nodes[z].parent].parent].color = Color::Red;
+                    self.left_rotate(nodes, nodes[nodes[z].parent].parent);
                 }
             }
+            if z == self.root_node {
+                break;
+            }
         }
-        if let Some(root) = self.root_node
-            && nodes[root].color == Color::Red
-        {
-            nodes[root].color = Color::Black;
+        if nodes[self.root_node].color == Color::Red {
             self.black_height += 1;
         }
+        nodes[self.root_node].color = Color::Black;
     }
 
     fn split_and_insert(
@@ -258,58 +177,56 @@ impl RedBlackTree {
     }
 
     fn insert_node_before(&mut self, nodes: &mut [Node], target_node: usize, new_node: usize) {
-        nodes[new_node].left = None;
-        nodes[new_node].right = None;
+        nodes[new_node].left = 0;
+        nodes[new_node].right = 0;
         nodes[new_node].color = Color::Red;
 
-        if nodes[target_node].left.is_none() {
-            nodes[target_node].left = Some(new_node);
-            nodes[new_node].parent = Some(target_node);
+        if nodes[target_node].left == 0 {
+            nodes[target_node].left = new_node;
+            nodes[new_node].parent = target_node;
         } else {
-            let mut curr = nodes[target_node].left.unwrap();
-            while let Some(right) = nodes[curr].right {
-                curr = right;
+            let mut curr = nodes[target_node].left;
+            let mut dest = 0;
+            while curr != 0 {
+                dest = curr;
+                curr = nodes[curr].right;
             }
-            nodes[curr].right = Some(new_node);
-            nodes[new_node].parent = Some(curr);
+            nodes[dest].right = new_node;
+            nodes[new_node].parent = dest;
         }
 
         Self::update_ancestors(nodes, nodes[new_node].parent);
         self.insert_fix(nodes, new_node);
     }
     fn insert_into_tree(&mut self, nodes: &mut Vec<Node>, new_node: usize, mut index: usize) {
-        let root = match self.root_node {
-            Some(r) => r,
-            None => {
-                // Empty tree: new_node becomes the black root
-                nodes[new_node].color = Color::Black;
-                self.root_node = Some(new_node);
-                self.black_height = 1;
-                return;
-            }
-        };
+        if self.root_node == 0 {
+            nodes[new_node].color = Color::Black;
+            self.root_node = new_node;
+            self.black_height = 1;
+            return;
+        }
 
         // Case 1: Inserting at or past the end of the entire document
-        if index >= nodes[root].subtree_length {
-            let mut rightmost = root;
-            while let Some(r) = nodes[rightmost].right {
-                rightmost = r;
+        if index >= nodes[self.root_node].subtree_length {
+            let mut rightmost = self.root_node;
+            while nodes[rightmost].right != 0 {
+                rightmost = nodes[rightmost].right;
             }
             self.insert_node_after(nodes, rightmost, new_node);
             return;
         }
 
         // Case 2: Traverse to find the exact piece containing `index`
-        let mut curr = root;
-        loop {
+        let mut curr = self.root_node;
+        while curr != 0 {
             let left_len = nodes[curr].left_subtree_length;
             let node_len = nodes[curr].length;
 
             if index < left_len {
-                curr = nodes[curr].left.unwrap();
+                curr = nodes[curr].left;
             } else if index >= left_len + node_len {
                 index -= left_len + node_len;
-                curr = nodes[curr].right.unwrap();
+                curr = nodes[curr].right;
             } else {
                 // Node found!
                 let offset = index - left_len;
@@ -326,319 +243,192 @@ impl RedBlackTree {
     }
     fn delete_node(&mut self, nodes: &mut [Node], z: usize) {
         let mut y_orig_color = nodes[z].color;
-        let x: Option<usize>;
-        let x_parent: Option<usize>;
-
-        if nodes[z].left.is_none() {
+        let mut y = z;
+        let mut x: usize;
+        let mut y_orig_color = nodes[y].color;
+        if nodes[z].left == 0 {
             x = nodes[z].right;
-            x_parent = nodes[z].parent;
-            self.transplant(nodes, z, x);
-            Self::update_ancestors(nodes, x_parent);
-        } else if nodes[z].right.is_none() {
+            self.transplant(nodes, z, nodes[z].right);
+        } else if nodes[z].right == 0 {
             x = nodes[z].left;
-            x_parent = nodes[z].parent;
-            self.transplant(nodes, z, x);
-            Self::update_ancestors(nodes, x_parent);
+            self.transplant(nodes, z, nodes[z].left);
         } else {
-            let y_idx = Self::minimum(nodes, nodes[z].right).unwrap();
-            y_orig_color = nodes[y_idx].color;
-            x = nodes[y_idx].right;
-
-            if nodes[y_idx].parent == Some(z) {
-                x_parent = Some(y_idx);
-                if let Some(x_idx) = x {
-                    nodes[x_idx].parent = Some(y_idx);
-                }
+            y = Self::minimum(nodes, nodes[z].right);
+            y_orig_color = nodes[y].color;
+            x = nodes[y].right;
+            if nodes[y].parent == z {
+                nodes[x].parent = y;
             } else {
-                x_parent = nodes[y_idx].parent;
-                self.transplant(nodes, y_idx, nodes[y_idx].right);
-                nodes[y_idx].right = nodes[z].right;
-                if let Some(r) = nodes[y_idx].right {
-                    nodes[r].parent = Some(y_idx);
-                }
-                // Update subtree lengths starting from y's original parent
-                Self::update_ancestors(nodes, x_parent);
+                self.transplant(nodes, y, nodes[y].right);
+                nodes[y].right = nodes[z].right;
+                nodes[nodes[y].right].parent = y;
             }
-
-            self.transplant(nodes, z, Some(y_idx));
-            nodes[y_idx].left = nodes[z].left;
-            if let Some(l) = nodes[y_idx].left {
-                nodes[l].parent = Some(y_idx);
-            }
-            nodes[y_idx].color = nodes[z].color;
-
-            // Update y and its ancestors
-            Self::update_subtree_length(nodes, y_idx);
-            Self::update_ancestors(nodes, nodes[y_idx].parent);
+            self.transplant(nodes, z, y);
+            nodes[y].left = nodes[z].left;
+            nodes[nodes[y].left].parent = y;
+            nodes[y].color = nodes[z].color;
         }
-
         if y_orig_color == Color::Black {
-            self.delete_fix(nodes, x, x_parent);
+            self.delete_fix(nodes, x);
         }
-        if self.root_node.is_none() {
+        if self.root_node == 0 {
             self.black_height = 0;
         }
     }
-    fn detach_leftmost_node(&mut self, nodes: &mut [Node]) -> Option<usize> {
-        let mut z: Option<usize> = None;
+    fn detach_leftmost_node(&mut self, nodes: &mut [Node]) -> usize {
+        let mut z = 0;
         let mut current_node = self.root_node;
-        while let Some(curr_node_idx) = current_node {
-            z = Some(curr_node_idx);
-            current_node = nodes[curr_node_idx].left;
+        while current_node != 0 {
+            z = current_node;
+            current_node = nodes[current_node].left;
         }
-        let z = z?;
+        
         self.delete_node(nodes, z);
 
         // Isolate detached node
-        nodes[z].left = None;
-        nodes[z].right = None;
-        nodes[z].parent = None;
+        nodes[z].left = 0;
+        nodes[z].right = 0;
+        nodes[z].parent = 0;
         nodes[z].color = Color::Red;
-
-        Some(z)
+        z
     }
-    fn delete_fix(
-        &mut self,
-        nodes: &mut [Node],
-        mut x: Option<usize>,
-        mut x_parent: Option<usize>,
-    ) {
-        while x != self.root_node && x.map_or(Color::Black, |n| nodes[n].color) == Color::Black {
-            let parent = match x_parent {
-                Some(p) => p,
-                None => break,
-            };
-
-            if x == nodes[parent].left {
-                let mut w = nodes[parent].right;
-
-                // Case 1: Sibling w is Red
-                if let Some(w_idx) = w
-                    && nodes[w_idx].color == Color::Red
-                {
-                    nodes[w_idx].color = Color::Black;
-                    nodes[parent].color = Color::Red;
-                    self.left_rotate(nodes, parent);
-                    w = nodes[parent].right;
+    fn delete_fix(&mut self, nodes: &mut [Node], mut x: usize) {
+        while x != self.root_node && nodes[x].color == Color::Black {
+            if x == nodes[nodes[x].parent].left {
+                let mut w = nodes[nodes[x].parent].right;
+                if nodes[w].color == Color::Red {
+                    nodes[w].color = Color::Black;
+                    nodes[nodes[x].parent].color = Color::Red;
+                    self.left_rotate(nodes, nodes[x].parent);
+                    w = nodes[nodes[x].parent].right;
                 }
-
-                let w_idx = w.unwrap();
-
-                let w_left_black = nodes[w_idx]
-                    .left
-                    .is_none_or(|l| nodes[l].color == Color::Black);
-                let w_right_black = nodes[w_idx]
-                    .right
-                    .is_none_or(|r| nodes[r].color == Color::Black);
-
-                // Case 2: Sibling w is Black and both children are Black
-                if w_left_black && w_right_black {
-                    nodes[w_idx].color = Color::Red;
-                    x = Some(parent);
-                    x_parent = nodes[parent].parent;
+                if nodes[nodes[w].left].color == Color::Black
+                    && nodes[nodes[w].right].color == Color::Black
+                {
+                    nodes[w].color = Color::Red;
+                    x = nodes[x].parent;
                 } else {
-                    // Case 3: Sibling w is Black, left child is Red, right
-                    if w_right_black {
-                        if let Some(w_left) = nodes[w_idx].left {
-                            nodes[w_left].color = Color::Black;
-                        }
-                        nodes[w_idx].color = Color::Red;
-                        self.right_rotate(nodes, w_idx);
-                        w = nodes[parent].right;
+                    if nodes[nodes[w].right].color == Color::Black {
+                        nodes[nodes[w].left].color = Color::Black;
+                        nodes[w].color = Color::Red;
+                        self.right_rotate(nodes, w);
+                        w = nodes[nodes[x].parent].right;
                     }
-
-                    // Case 4: Sibling w is Black, right child is Red
-                    let w_idx = w.unwrap();
-                    nodes[w_idx].color = nodes[parent].color;
-                    nodes[parent].color = Color::Black;
-                    if let Some(w_right) = nodes[w_idx].right {
-                        nodes[w_right].color = Color::Black;
-                    }
-                    self.left_rotate(nodes, parent);
-                    if let Some(root) = self.root_node {
-                        nodes[root].color = Color::Black;
-                    }
-                    return;
+                    nodes[w].color = nodes[nodes[x].parent].color;
+                    nodes[nodes[x].parent].color = Color::Black;
+                    nodes[nodes[w].right].color = Color::Black;
+                    self.left_rotate(nodes, nodes[x].parent);
+                    x = self.root_node;
                 }
             } else {
-                // Symmetric cases when x is the right child
-                let mut w = nodes[parent].left;
-
-                if let Some(w_idx) = w
-                    && nodes[w_idx].color == Color::Red
-                {
-                    nodes[w_idx].color = Color::Black;
-                    nodes[parent].color = Color::Red;
-                    self.right_rotate(nodes, parent);
-                    w = nodes[parent].left;
+                let mut w = nodes[nodes[x].parent].left;
+                if nodes[w].color == Color::Red {
+                    nodes[w].color = Color::Black;
+                    nodes[nodes[x].parent].color = Color::Red;
+                    self.left_rotate(nodes, nodes[x].parent);
+                    w = nodes[nodes[x].parent].left;
                 }
-
-                let w_idx = w.unwrap();
-                let w_left_black = nodes[w_idx]
-                    .left
-                    .is_none_or(|l| nodes[l].color == Color::Black);
-                let w_right_black = nodes[w_idx]
-                    .right
-                    .is_none_or(|r| nodes[r].color == Color::Black);
-
-                if w_left_black && w_right_black {
-                    nodes[w_idx].color = Color::Red;
-                    x = Some(parent);
-                    x_parent = nodes[parent].parent;
+                if nodes[nodes[w].right].color == Color::Black
+                    && nodes[nodes[w].left].color == Color::Black
+                {
+                    nodes[w].color = Color::Red;
+                    x = nodes[x].parent;
                 } else {
-                    if w_left_black {
-                        if let Some(w_right) = nodes[w_idx].right {
-                            nodes[w_right].color = Color::Black;
-                        }
-                        nodes[w_idx].color = Color::Red;
-                        self.left_rotate(nodes, w_idx);
-                        w = nodes[parent].left;
+                    if nodes[nodes[w].left].color == Color::Black {
+                        nodes[nodes[w].right].color = Color::Black;
+                        nodes[w].color = Color::Red;
+                        self.left_rotate(nodes, w);
+                        w = nodes[nodes[x].parent].left;
                     }
-
-                    let w_idx = w.unwrap();
-                    nodes[w_idx].color = nodes[parent].color;
-                    nodes[parent].color = Color::Black;
-                    if let Some(w_left) = nodes[w_idx].left {
-                        nodes[w_left].color = Color::Black;
-                    }
-                    self.right_rotate(nodes, parent);
-                    if let Some(root) = self.root_node {
-                        nodes[root].color = Color::Black;
-                    }
-                    return;
+                    nodes[w].color = nodes[nodes[x].parent].color;
+                    nodes[nodes[x].parent].color = Color::Black;
+                    nodes[nodes[w].left].color = Color::Black;
+                    self.right_rotate(nodes, nodes[x].parent);
+                    x = self.root_node;
                 }
             }
         }
         if x == self.root_node {
             self.black_height -= 1;
         }
-
-        if let Some(x_idx) = x {
-            nodes[x_idx].color = Color::Black;
-        }
+        nodes[x].color = Color::Black;
     }
-    fn minimum(nodes: &[Node], node: Option<usize>) -> Option<usize> {
-        let mut left_most = node;
-        let mut current_node = node;
-        while let Some(curr_node_idx) = current_node {
-            left_most = Some(curr_node_idx);
-            current_node = nodes[curr_node_idx].left;
+    fn minimum(nodes: &[Node], x: usize) -> usize {
+        let mut left_most = x;
+        while nodes[left_most].left != 0 {
+            left_most = nodes[left_most].left;
         }
         left_most
     }
-    fn transplant(&mut self, nodes: &mut [Node], u: usize, v: Option<usize>) {
-        if nodes[u].parent.is_none() {
+    fn transplant(&mut self, nodes: &mut [Node], u: usize, v: usize) {
+        if nodes[u].parent == 0 {
             self.root_node = v;
-        } else if Some(u) == nodes[nodes[u].parent.unwrap()].left {
-            nodes[nodes[u].parent.unwrap()].left = v;
+        } else if u == nodes[nodes[u].parent].left {
+            nodes[nodes[u].parent].left = v;
         } else {
-            nodes[nodes[u].parent.unwrap()].right = v;
+            nodes[nodes[u].parent].right = v;
         }
-        if let Some(v_idx) = v {
-            nodes[v_idx].parent = nodes[u].parent;
-        }
+        nodes[v].parent = nodes[u].parent;
     }
 
-    pub fn delete(&mut self, nodes: &mut [Node], index: usize, length: usize) {
-        #[allow(unused_variables, unused_mut)]
-        let mut index = index;
-        let mut parent_node: Option<usize> = None;
-        let mut current_node = self.root_node;
-
-        while let Some(curr) = current_node {
-            let left_len = nodes[curr].left_subtree_length;
-            let node_len = nodes[curr].length;
-
-            if index < left_len {
-                current_node = nodes[curr].left;
-            } else if index >= left_len + node_len {
-                index -= left_len + node_len;
-                current_node = nodes[curr].right;
-            } else {
-                // Node found!
-                let offset = index - left_len;
-                if offset == 0 {
-                } else {
-                }
-                break;
-            }
-        }
-    }
     fn catenate(nodes: &mut [Node], t1: RedBlackTree, t2: RedBlackTree) -> RedBlackTree {
-        if t1.root_node.is_none() {
+        if t1.root_node == 0 {
             return t2;
         }
-        if t2.root_node.is_none() {
+        if t2.root_node == 0 {
             return t1;
         }
         let mut t1 = t1;
         let mut t2 = t2;
-        let v = match t2.detach_leftmost_node(nodes) {
-            Some(v_idx) => v_idx,
-            None => {
-                return RedBlackTree {
+        let v = t2.detach_leftmost_node(nodes);
+        if v == 0{
+             return RedBlackTree {
                     black_height: 0,
-                    root_node: None,
+                    root_node: 0,
                 };
-            }
-        };
-        if t2.root_node.is_none() {
+
+        }
+        if t2.root_node == 0 {
             // Find rightmost node of T1
-            let mut rightmost = t1.root_node.unwrap();
-            while let Some(r) = nodes[rightmost].right {
-                rightmost = r;
+            let mut rightmost = t1.root_node;
+            while nodes[rightmost].right != 0 {
+                rightmost = nodes[rightmost].right;
             }
             t1.insert_node_after(nodes, rightmost, v);
             return t1;
         }
         let mut curr_black_height = t2.black_height;
-        let mut current_node: Option<usize> = t2.root_node;
-        let mut rho: Option<usize> = t2.root_node;
+        let mut current_node = t2.root_node;
+        let mut rho = t2.root_node;
 
-        while let Some(curr_node_idx) = current_node {
-            rho = Some(curr_node_idx);
-            if nodes[curr_node_idx].color == Color::Black {
+        while current_node != 0 {
+            rho = current_node;
+            if nodes[current_node].color == Color::Black {
                 if curr_black_height == t1.black_height {
                     break;
                 }
                 curr_black_height -= 1;
             }
-            current_node = nodes[curr_node_idx].left;
+            current_node = nodes[current_node].left;
         }
-        let rho_parent = match rho {
-            Some(rho_idx) => nodes[rho_idx].parent,
-            None => {
-                return RedBlackTree {
-                    black_height: 0,
-                    root_node: None,
-                };
-            }
-        };
+        let rho_parent = nodes[rho].parent;
 
         nodes[v].left = t1.root_node;
         nodes[v].right = rho;
-        if let Some(l) = nodes[v].left {
-            nodes[l].parent = Some(v);
-        }
-        if let Some(r) = nodes[v].right {
-            nodes[r].parent = Some(v);
-        }
-        match rho_parent {
-            Some(rho_p_idx) => {
-                nodes[v].parent = rho_parent;
-                nodes[rho_p_idx].left = Some(v);
-                t1.root_node = t2.root_node;
-                t1.black_height = t2.black_height;
-            }
-            None => {
-                t1.root_node = Some(v);
-            }
+        nodes[nodes[v].left].parent = v;
+        nodes[nodes[v].right].parent = v;
+        if rho_parent == 0 {
+            t1.root_node = v;
+        } else {
+            nodes[v].parent = rho_parent;
+            nodes[rho_parent].left = v;
+            t1.root_node = t2.root_node;
+            t1.black_height = t2.black_height;
         }
         Self::update_subtree_length(nodes, v);
         t1.insert_fix(nodes, v);
         t1
     }
-    fn split(&mut self,)
 }
 
 struct Node {
@@ -648,9 +438,9 @@ struct Node {
     length: usize,
     subtree_length: usize,
     left_subtree_length: usize,
-    left: Option<usize>,
-    right: Option<usize>,
-    parent: Option<usize>,
+    left: usize,
+    right: usize,
+    parent: usize,
 }
 impl Node {
     fn new(buffer_type: BufferType, start: usize, length: usize) -> Self {
@@ -661,9 +451,9 @@ impl Node {
             length,
             subtree_length: length,
             left_subtree_length: 0,
-            left: None,
-            right: None,
-            parent: None,
+            left: 0,
+            right: 0,
+            parent: 0,
         }
     }
 }
@@ -671,35 +461,37 @@ impl Node {
 impl PieceTree {
     pub fn new(original: &str) -> Self {
         if !original.is_empty() {
+            let nil_node = Node::new(BufferType::Original, 0, 0);
             let mut root = Node::new(BufferType::Original, 0, original.len());
             root.color = Color::Black;
             Self {
                 original: String::from(original),
                 add: String::new(),
-                nodes: vec![root],
-                red_black_tree: RedBlackTree::new(1, Some(0)),
+                nodes: vec![nil_node, root],
+                red_black_tree: RedBlackTree::new(1, 1),
             }
         } else {
+            let nil_node = Node::new(BufferType::Original, 0, 0);
             Self {
                 original: String::from(original),
                 add: String::new(),
-                nodes: Vec::new(),
-                red_black_tree: RedBlackTree::new(0, None),
+                nodes: vec![nil_node],
+                red_black_tree: RedBlackTree::new(0, 0),
             }
         }
     }
     pub fn get_text(&self) -> String {
-        let capacity = match self.red_black_tree.root_node {
-            Some(root) => self.nodes[root].subtree_length,
-            None => return String::new(),
-        };
+        if self.red_black_tree.root_node == 0{
+            return String::new();
+        }
+        let capacity = self.nodes[self.red_black_tree.root_node].subtree_length; 
         let mut result = String::with_capacity(capacity);
         self.in_order(self.red_black_tree.root_node, &mut result);
         result
     }
-    fn in_order(&self, node_idx: Option<usize>, out: &mut String) {
-        if let Some(idx) = node_idx {
-            let node = &self.nodes[idx];
+    fn in_order(&self, node_idx: usize, out: &mut String) {
+        if node_idx != 0 {
+            let node = &self.nodes[node_idx];
             self.in_order(node.left, out);
 
             let buffer = match node.buffer_type {
