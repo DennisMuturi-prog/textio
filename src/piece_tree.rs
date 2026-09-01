@@ -1,3 +1,5 @@
+use std::usize;
+
 pub struct PieceTree {
     original: String,
     add: String,
@@ -174,6 +176,58 @@ impl RedBlackTree {
             self.insert_node_after(nodes, curr_node_idx, new_node);
             self.insert_node_after(nodes, new_node, right_node_idx);
         }
+    }
+    fn split_and_insert_for_delete(
+        &mut self,
+        nodes: &mut Vec<Node>,
+        index: usize,
+        curr_node_idx: usize,
+        length: usize,
+    ) {
+        let offset_in_node = index - nodes[curr_node_idx].left_subtree_length;
+
+        if offset_in_node > 0 && offset_in_node < nodes[curr_node_idx].length {
+            let right_start = nodes[curr_node_idx].start + offset_in_node + length;
+            let right_len = nodes[curr_node_idx].length - offset_in_node - length;
+            let buffer_type = nodes[curr_node_idx].buffer_type;
+
+            // 1. Shorten left piece in-place
+            nodes[curr_node_idx].length = offset_in_node;
+            Self::update_subtree_length(nodes, curr_node_idx);
+
+            // 2. Create right piece
+            let right_node_idx = nodes.len();
+            nodes.push(Node::new(buffer_type, right_start, right_len));
+
+            // 3. Insert new_node and right_node as consecutive successors in the tree
+            self.insert_node_after(nodes, curr_node_idx, right_node_idx);
+        }
+    }
+    fn split_and_insert_for_bigger_delete(
+        &mut self,
+        nodes: &mut Vec<Node>,
+        index: usize,
+        curr_node_idx: usize,
+    ) -> usize {
+        let offset_in_node = index - nodes[curr_node_idx].left_subtree_length;
+
+        if offset_in_node > 0 && offset_in_node < nodes[curr_node_idx].length {
+            let right_start = nodes[curr_node_idx].start + offset_in_node;
+            let right_len = nodes[curr_node_idx].length - offset_in_node;
+            let buffer_type = nodes[curr_node_idx].buffer_type;
+
+            // 1. Shorten left piece in-place
+            nodes[curr_node_idx].length = offset_in_node;
+            Self::update_subtree_length(nodes, curr_node_idx);
+
+            // 2. Create right piece
+            let right_node_idx = nodes.len();
+            nodes.push(Node::new(buffer_type, right_start, right_len));
+
+            self.insert_node_after(nodes, curr_node_idx, right_node_idx);
+            return right_node_idx;
+        }
+        0
     }
 
     fn insert_node_before(&mut self, nodes: &mut [Node], target_node: usize, new_node: usize) {
@@ -357,8 +411,8 @@ impl RedBlackTree {
         }
         if nodes[x].color == Color::Red {
             nodes[x].color = Color::Black;
-            if x == self.root_node{
-                self.black_height+=1;
+            if x == self.root_node {
+                self.black_height += 1;
             }
         }
     }
@@ -380,62 +434,479 @@ impl RedBlackTree {
         nodes[v].parent = nodes[u].parent;
     }
 
-    fn catenate(nodes: &mut [Node], t1: RedBlackTree, t2: RedBlackTree) -> RedBlackTree {
-        if t1.root_node == 0 {
-            return t2;
+    fn catenate(&mut self, nodes: &mut [Node], t2: RedBlackTree) {
+        if self.root_node == 0 {
+            self.root_node = t2.root_node;
+            self.black_height = t2.black_height;
+            return;
         }
         if t2.root_node == 0 {
-            return t1;
+            return;
         }
-        let mut t1 = t1;
         let mut t2 = t2;
         let v = t2.detach_leftmost_node(nodes);
         if v == 0 {
-            return RedBlackTree {
-                black_height: 0,
-                root_node: 0,
-            };
+            return;
         }
         if t2.root_node == 0 {
             // Find rightmost node of T1
-            let mut rightmost = t1.root_node;
+            let mut rightmost = self.root_node;
             while nodes[rightmost].right != 0 {
                 rightmost = nodes[rightmost].right;
             }
-            t1.insert_node_after(nodes, rightmost, v);
-            return t1;
+            self.insert_node_after(nodes, rightmost, v);
+            return;
         }
-        let mut curr_black_height = t2.black_height;
-        let mut current_node = t2.root_node;
-        let mut rho = t2.root_node;
+        if self.black_height <= t2.black_height {
+            // T2 is taller: descend T2's left spine to find rho where BH == self.black_height
+            let mut curr_bh = t2.black_height;
+            let mut curr = t2.root_node;
+            let mut rho = t2.root_node;
 
-        while current_node != 0 {
-            rho = current_node;
-            if nodes[current_node].color == Color::Black {
-                if curr_black_height == t1.black_height {
-                    break;
+            while curr != 0 {
+                rho = curr;
+                if nodes[curr].color == Color::Black {
+                    if curr_bh == self.black_height {
+                        break;
+                    }
+                    curr_bh -= 1;
                 }
-                curr_black_height -= 1;
+                curr = nodes[curr].left;
             }
-            current_node = nodes[current_node].left;
-        }
-        let rho_parent = nodes[rho].parent;
+            let rho_parent = nodes[rho].parent;
 
-        nodes[v].left = t1.root_node;
-        nodes[v].right = rho;
-        nodes[nodes[v].left].parent = v;
-        nodes[nodes[v].right].parent = v;
-        if rho_parent == 0 {
-            t1.root_node = v;
+            nodes[v].left = self.root_node;
+            nodes[v].right = rho;
+            nodes[nodes[v].left].parent = v;
+            nodes[nodes[v].right].parent = v;
+
+            if rho_parent == 0 {
+                self.root_node = v;
+            } else {
+                nodes[v].parent = rho_parent;
+                nodes[rho_parent].left = v;
+                self.root_node = t2.root_node;
+                self.black_height = t2.black_height;
+            }
+            Self::update_subtree_length(nodes, v);
+            Self::update_ancestors(nodes, rho_parent);
+            self.insert_fix(nodes, v);
         } else {
-            nodes[v].parent = rho_parent;
-            nodes[rho_parent].left = v;
-            t1.root_node = t2.root_node;
-            t1.black_height = t2.black_height;
+            // T1 (self) is taller: descend T1's right spine to find sigma where BH == t2.black_height
+            let mut curr_bh = self.black_height;
+            let mut curr = self.root_node;
+            let mut sigma = self.root_node;
+
+            while curr != 0 {
+                sigma = curr;
+                if nodes[curr].color == Color::Black {
+                    if curr_bh == t2.black_height {
+                        break;
+                    }
+                    curr_bh -= 1;
+                }
+                curr = nodes[curr].right;
+            }
+            let sigma_parent = nodes[sigma].parent;
+
+            nodes[v].left = sigma;
+            nodes[v].right = t2.root_node;
+            nodes[nodes[v].left].parent = v;
+            nodes[nodes[v].right].parent = v;
+
+            if sigma_parent == 0 {
+                self.root_node = v;
+            } else {
+                nodes[v].parent = sigma_parent;
+                nodes[sigma_parent].right = v;
+            }
+            Self::update_subtree_length(nodes, v);
+            Self::update_ancestors(nodes, sigma_parent);
+            self.insert_fix(nodes, v);
         }
-        Self::update_subtree_length(nodes, v);
-        t1.insert_fix(nodes, v);
-        t1
+    }
+    /// Finds the node containing `index` and returns (node_idx, offset_within_node).
+    fn find_node(&self, nodes: &[Node], mut index: usize) -> (usize, usize) {
+        let mut curr = self.root_node;
+        while curr != 0 {
+            let left_len = nodes[curr].left_subtree_length;
+            let node_len = nodes[curr].length;
+
+            if index < left_len {
+                curr = nodes[curr].left;
+            } else if index >= left_len + node_len {
+                index -= left_len + node_len;
+                curr = nodes[curr].right;
+            } else {
+                return (curr, index - left_len);
+            }
+        }
+        (0, 0)
+    }
+
+    /// In-order successor of a node in the tree (same as Multiset.h successor)
+    fn successor(nodes: &[Node], node: usize) -> usize {
+        if nodes[node].right != 0 {
+            let mut curr = nodes[node].right;
+            while nodes[curr].left != 0 {
+                curr = nodes[curr].left;
+            }
+            curr
+        } else {
+            let mut curr = node;
+            let mut parent = nodes[curr].parent;
+            while parent != 0 && curr == nodes[parent].right {
+                curr = parent;
+                parent = nodes[parent].parent;
+            }
+            parent
+        }
+    }
+    fn delete(&mut self, nodes: &mut Vec<Node>, start: usize, length: usize) {
+        if length == 0 || self.root_node == 0 {
+            return;
+        }
+
+        let total_len = nodes[self.root_node].subtree_length;
+        if start >= total_len {
+            return;
+        }
+        let length = length.min(total_len - start);
+
+        let (start_node, start_offset) = self.find_node(nodes, start);
+        let end = start + length;
+        let (end_node, end_offset) = if end >= total_len {
+            (0, 0) // past the end
+        } else {
+            self.find_node(nodes, end)
+        };
+
+        // Case 1: Deletion is entirely within a single piece
+        if start_node == end_node && start_node != 0 {
+            let node_len = nodes[start_node].length;
+            if start_offset == 0 && length == node_len {
+                // Whole node deleted
+                self.delete_node(nodes, start_node);
+            } else if start_offset == 0 {
+                // Trim prefix
+                nodes[start_node].start += length;
+                nodes[start_node].length -= length;
+                Self::update_ancestors(nodes, start_node);
+            } else if start_offset + length == node_len {
+                // Trim suffix
+                nodes[start_node].length -= length;
+                Self::update_ancestors(nodes, start_node);
+            } else {
+                // Middle of node: split into left piece & new right piece
+                let right_start = nodes[start_node].start + start_offset + length;
+                let right_len = node_len - start_offset - length;
+                let buffer_type = nodes[start_node].buffer_type;
+
+                // Shorten left piece
+                nodes[start_node].length = start_offset;
+                Self::update_subtree_length(nodes, start_node);
+                let parent= nodes[start_node].parent;
+                Self::update_ancestors(nodes, parent);
+
+                // Create and insert right piece
+                let right_node_idx = nodes.len();
+                nodes.push(Node::new(buffer_type, right_start, right_len));
+                self.insert_node_after(nodes, start_node, right_node_idx);
+            }
+            return;
+        }
+
+        // Case 2: Deletion spans multiple pieces
+        let mut nodes_to_delete = Vec::new();
+
+        // 1. Handle start_node
+        if start_offset == 0 {
+            nodes_to_delete.push(start_node);
+        } else {
+            nodes[start_node].length = start_offset;
+            Self::update_ancestors(nodes, start_node);
+        }
+
+        // 2. Collect all whole nodes between start_node and end_node
+        let mut curr = Self::successor(nodes, start_node);
+        while curr != 0 && curr != end_node {
+            nodes_to_delete.push(curr);
+            curr = Self::successor(nodes, curr);
+        }
+
+        // 3. Handle end_node
+        if end_node != 0 {
+            if end_offset == nodes[end_node].length {
+                nodes_to_delete.push(end_node);
+            } else if end_offset > 0 {
+                nodes[end_node].start += end_offset;
+                nodes[end_node].length -= end_offset;
+                Self::update_ancestors(nodes, end_node);
+            }
+        }
+
+        // 4. Delete collected whole nodes
+        for node in nodes_to_delete {
+            self.delete_node(nodes, node);
+        }
+    }
+    fn delete_legacy(&mut self, nodes: &mut Vec<Node>, index: usize, length: usize) {
+        let mut index = index;
+        if self.root_node == 0 {
+            return;
+        }
+
+        // Case 1: Inserting at or past the end of the entire document
+        if index >= nodes[self.root_node].subtree_length {
+            return;
+        }
+
+        // Case 2: Traverse to find the exact piece containing `index`
+        let mut curr = self.root_node;
+        while curr != 0 {
+            let left_len = nodes[curr].left_subtree_length;
+            let node_len = nodes[curr].length;
+
+            if index < left_len {
+                curr = nodes[curr].left;
+            } else if index >= left_len + node_len {
+                index -= left_len + node_len;
+                curr = nodes[curr].right;
+            } else {
+                // Node found!
+                let offset = index - left_len;
+                if offset == 0 && length == nodes[curr].length {
+                    self.delete_node(nodes, curr);
+                } else if offset == 0 && length < nodes[curr].length {
+                    nodes[curr].length -= length;
+                    nodes[curr].start += length;
+                    Self::update_ancestors(nodes, curr);
+                } else if offset == 0 && length > nodes[curr].length {
+                    let mut t2 = self.split(nodes, curr);
+                    t2.delete(nodes, 0, length);
+                    self.catenate(nodes, t2);
+                } else {
+                    // Split: Insert in the middle of this piece
+                    if offset + length == nodes[curr].length {
+                        nodes[curr].length -= length;
+                        Self::update_ancestors(nodes, curr);
+                    } else if offset + length < nodes[curr].length {
+                        self.split_and_insert_for_delete(nodes, index, curr, length);
+                    } else {
+                        let position = self.split_and_insert_for_bigger_delete(nodes, index, curr);
+                        let mut t2 = self.split(nodes, position);
+                        t2.delete(nodes, 0, length);
+                        self.catenate(nodes, t2);
+                    }
+                }
+                break;
+            }
+        }
+    }
+    fn split(&mut self, nodes: &mut [Node], node: usize) -> RedBlackTree {
+        let mut depth: i32 = 0;
+        let mut current = node;
+        let mut path = vec![PathSpecifier::Equal; self.black_height * 2];
+        path[depth as usize] = PathSpecifier::Equal;
+        while nodes[current].parent != 0 {
+            depth += 1;
+            if current == nodes[nodes[current].parent].left {
+                path[depth as usize] = PathSpecifier::Smaller;
+            } else {
+                path[depth as usize] = PathSpecifier::Larger;
+            }
+            current = nodes[current].parent;
+        }
+        let mut current_b_height = self.black_height;
+        let mut left_tree = RedBlackTree::new(0, 0);
+        let mut left_b_height = 0;
+        let mut spine_left = 0;
+        let mut aux_left = 0;
+        let mut right_tree = RedBlackTree::new(0, 0);
+        let mut right_b_height = 0;
+        let mut spine_right = 0;
+        let mut aux_right = 0;
+        let mut child;
+        let mut next = 0;
+
+        while depth >= 0 {
+            if nodes[current].color == Color::Black {
+                current_b_height -= 1;
+            }
+            if path[depth as usize] != PathSpecifier::Larger {
+                child = nodes[current].right;
+                next = nodes[current].left;
+                if child != 0 && right_tree.root_node == 0 {
+                    right_tree.root_node = child;
+                    right_tree.black_height = current_b_height;
+                    nodes[right_tree.root_node].parent = 0;
+                    if nodes[right_tree.root_node].color == Color::Red {
+                        nodes[right_tree.root_node].color = Color::Black;
+                        right_tree.black_height += 1;
+                    }
+                    right_b_height = right_tree.black_height;
+                    spine_right = right_tree.root_node;
+                } else if child != 0 {
+                    let mut current_right_black_height = current_b_height;
+                    if nodes[child].color == Color::Red {
+                        nodes[child].color = Color::Black;
+                        current_right_black_height += 1;
+                    }
+                    while right_b_height > current_right_black_height {
+                        if nodes[spine_right].color == Color::Black {
+                            right_b_height -= 1;
+                        }
+                        spine_right = nodes[spine_right].left;
+                    }
+                    if nodes[spine_right].color == Color::Red {
+                        spine_right = nodes[spine_right].left;
+                    }
+                    nodes[aux_right].parent = nodes[spine_right].parent;
+                    nodes[aux_right].color = Color::Red;
+                    nodes[aux_right].left = child;
+                    nodes[aux_right].right = spine_right;
+                    if nodes[aux_right].parent != 0 {
+                        nodes[nodes[aux_right].parent].left = aux_right;
+                    } else {
+                        right_tree.root_node = aux_right;
+                    }
+                    nodes[child].parent = aux_right;
+                    nodes[spine_right].parent = aux_right;
+                    right_tree.insert_fix(nodes, aux_right);
+                    aux_right = 0;
+                    right_b_height = current_right_black_height;
+                    spine_right = child;
+                }
+                if aux_right != 0 {
+                    if right_tree.root_node != 0 {
+                        while nodes[spine_right].left != 0 {
+                            spine_right = nodes[spine_right].left;
+                        }
+                        nodes[aux_right].parent = spine_right;
+                        nodes[aux_right].color = Color::Red;
+                        nodes[aux_right].right = 0;
+                        nodes[aux_right].left = 0;
+                        nodes[spine_right].left = aux_right;
+                        right_tree.insert_fix(nodes, aux_right);
+                    } else {
+                        right_tree.root_node = aux_right;
+                        right_tree.black_height = 1;
+                        nodes[aux_right].parent = 0;
+                        nodes[aux_right].color = Color::Black;
+                        nodes[aux_right].right = 0;
+                        nodes[aux_right].left = 0;
+                    }
+                    spine_right = aux_right;
+                    right_b_height = if nodes[spine_right].color == Color::Black {
+                        1
+                    } else {
+                        0
+                    };
+                    aux_right = 0;
+                }
+                aux_right = current;
+            }
+            if path[depth as usize] != PathSpecifier::Smaller {
+                child = nodes[current].left;
+                next = nodes[current].right;
+                if child != 0 && left_tree.root_node == 0 {
+                    left_tree.root_node = child;
+                    left_tree.black_height = current_b_height;
+                    nodes[left_tree.root_node].parent = 0;
+                    if nodes[left_tree.root_node].color == Color::Red {
+                        nodes[left_tree.root_node].color = Color::Black;
+                        left_tree.black_height += 1;
+                    }
+                    left_b_height = left_tree.black_height;
+                    spine_left = left_tree.root_node;
+                } else if child != 0 {
+                    let mut current_left_black_height = current_b_height;
+                    if nodes[child].color == Color::Red {
+                        nodes[child].color = Color::Black;
+                        current_left_black_height += 1;
+                    }
+                    while left_b_height > current_left_black_height {
+                        if nodes[spine_left].color == Color::Black {
+                            left_b_height -= 1;
+                        }
+                        spine_left = nodes[spine_left].right;
+                    }
+                    if nodes[spine_left].color == Color::Red {
+                        spine_left = nodes[spine_left].right;
+                    }
+                    nodes[aux_left].parent = nodes[spine_left].parent;
+                    nodes[aux_left].color = Color::Red;
+                    nodes[aux_left].left = spine_left;
+                    nodes[aux_left].right = child;
+                    if nodes[aux_left].parent != 0 {
+                        nodes[nodes[aux_left].parent].right = aux_left;
+                    } else {
+                        left_tree.root_node = aux_left;
+                    }
+                    nodes[child].parent = aux_left;
+                    nodes[spine_left].parent = aux_left;
+                    left_tree.insert_fix(nodes, aux_left);
+                    aux_left = 0;
+                    left_b_height = current_left_black_height;
+                    spine_left = child;
+                }
+                if aux_left != 0 {
+                    if left_tree.root_node != 0 {
+                        while nodes[spine_left].right != 0 {
+                            spine_left = nodes[spine_left].right;
+                        }
+                        nodes[aux_left].parent = spine_left;
+                        nodes[aux_left].color = Color::Red;
+                        nodes[aux_left].right = 0;
+                        nodes[aux_left].left = 0;
+                        nodes[spine_left].right = aux_left;
+                        left_tree.insert_fix(nodes, aux_left);
+                    } else {
+                        left_tree.root_node = aux_left;
+                        left_tree.black_height = 1;
+                        nodes[aux_left].parent = 0;
+                        nodes[aux_left].color = Color::Black;
+                        nodes[aux_left].right = 0;
+                        nodes[aux_left].left = 0;
+                    }
+                    spine_left = aux_left;
+                    left_b_height = if nodes[spine_left].color == Color::Black {
+                        1
+                    } else {
+                        0
+                    };
+                    aux_left = 0;
+                }
+                if depth > 0 {
+                    aux_left = current;
+                }
+            }
+            current = next;
+            depth -= 1;
+        }
+        drop(path);
+        if right_tree.root_node != 0 {
+            while nodes[spine_right].left != 0 {
+                spine_right = nodes[spine_right].left;
+            }
+            nodes[node].parent = spine_right;
+            nodes[node].color = Color::Red;
+            nodes[node].right = 0;
+            nodes[node].left = 0;
+            nodes[spine_right].left = node;
+            right_tree.insert_fix(nodes, node);
+        } else {
+            right_tree.root_node = node;
+            right_tree.black_height = 1;
+            nodes[node].parent = 0;
+            nodes[node].color = Color::Black;
+
+            nodes[node].right = 0;
+            nodes[node].left = 0;
+        }
+        self.root_node = left_tree.root_node;
+        self.black_height = left_tree.black_height;
+        right_tree
     }
 }
 
@@ -533,7 +1004,9 @@ impl PieceTree {
         ));
         previous_nodes_len
     }
-    pub fn delete(&mut self, index: usize, length: usize) {}
+    pub fn delete(&mut self, index: usize, length: usize) {
+        self.red_black_tree.delete(&mut self.nodes, index, length);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -546,4 +1019,11 @@ enum BufferType {
 enum Color {
     Red,
     Black,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PathSpecifier {
+    Smaller,
+    Larger,
+    Equal,
 }
