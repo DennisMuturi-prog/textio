@@ -299,6 +299,64 @@ impl RedBlackTree {
         let mut y = z;
         let x: usize;
         let mut y_orig_color = nodes[y].color;
+
+        if nodes[z].left == 0 {
+            x = nodes[z].right;
+            let parent = nodes[z].parent;
+            self.transplant(nodes, z, nodes[z].right);
+            Self::update_ancestors(nodes, parent); // Fix 1: Update ancestors when left is 0
+        } else if nodes[z].right == 0 {
+            x = nodes[z].left;
+            let parent = nodes[z].parent;
+            self.transplant(nodes, z, nodes[z].left);
+            Self::update_ancestors(nodes, parent); // Fix 1: Update ancestors when right is 0
+        } else {
+            y = Self::minimum(nodes, nodes[z].right);
+            y_orig_color = nodes[y].color;
+            x = nodes[y].right;
+            let y_parent = nodes[y].parent;
+
+            if nodes[y].parent == z {
+                nodes[x].parent = y;
+            } else {
+                self.transplant(nodes, y, nodes[y].right);
+                nodes[y].right = nodes[z].right;
+                nodes[nodes[y].right].parent = y;
+            }
+
+            self.transplant(nodes, z, y);
+            nodes[y].left = nodes[z].left;
+            nodes[nodes[y].left].parent = y;
+            nodes[y].color = nodes[z].color;
+
+            // Fix 2: If y was deeper in the right subtree, update from y's former parent
+            if y_parent != z {
+                Self::update_ancestors(nodes, y_parent);
+            }
+
+            Self::update_subtree_length(nodes, y);
+            Self::update_ancestors(nodes, nodes[y].parent);
+        }
+
+        if y_orig_color == Color::Black {
+            self.delete_fix(nodes, x);
+        }
+
+        // Fix 3: Clean up sentinel NIL node
+        nodes[0].parent = 0;
+        nodes[0].left = 0;
+        nodes[0].right = 0;
+        nodes[0].subtree_length = 0;
+        nodes[0].left_subtree_length = 0;
+
+        if self.root_node == 0 {
+            self.black_height = 0;
+        }
+    }
+    fn delete_node_legacy(&mut self, nodes: &mut [Node], z: usize) {
+        let mut y = z;
+        let x: usize;
+        let mut y_orig_color = nodes[y].color;
         if nodes[z].left == 0 {
             x = nodes[z].right;
             self.transplant(nodes, z, nodes[z].right);
@@ -326,6 +384,11 @@ impl RedBlackTree {
         if y_orig_color == Color::Black {
             self.delete_fix(nodes, x);
         }
+        nodes[0].parent = 0;
+        nodes[0].left = 0;
+        nodes[0].right = 0;
+        nodes[0].subtree_length = 0;
+        nodes[0].left_subtree_length = 0;
         if self.root_node == 0 {
             self.black_height = 0;
         }
@@ -383,7 +446,7 @@ impl RedBlackTree {
                 if nodes[w].color == Color::Red {
                     nodes[w].color = Color::Black;
                     nodes[nodes[x].parent].color = Color::Red;
-                    self.left_rotate(nodes, nodes[x].parent);
+                    self.right_rotate(nodes, nodes[x].parent);
                     w = nodes[nodes[x].parent].left;
                 }
                 if nodes[nodes[w].right].color == Color::Black
@@ -411,9 +474,6 @@ impl RedBlackTree {
         }
         if nodes[x].color == Color::Red {
             nodes[x].color = Color::Black;
-            if x == self.root_node {
-                self.black_height += 1;
-            }
         }
     }
     fn minimum(nodes: &[Node], x: usize) -> usize {
@@ -605,8 +665,8 @@ impl RedBlackTree {
                 // Shorten left piece
                 nodes[start_node].length = start_offset;
                 Self::update_subtree_length(nodes, start_node);
-                let parent= nodes[start_node].parent;
-                Self::update_ancestors(nodes, parent);
+                let parent = nodes[start_node].parent;
+                Self::update_ancestors(nodes, start_node);
 
                 // Create and insert right piece
                 let right_node_idx = nodes.len();
@@ -1007,6 +1067,404 @@ impl PieceTree {
     pub fn delete(&mut self, index: usize, length: usize) {
         self.red_black_tree.delete(&mut self.nodes, index, length);
     }
+
+    /// Validates all Red-Black Tree invariants and PieceTree metadata invariants.
+    /// Returns Ok(()) if all rules are satisfied, or Err(String) with a detailed description of any violation.
+    pub fn validate_invariants(&self) -> Result<(), String> {
+        // 1. Validate nil node at index 0
+        if self.nodes.is_empty() {
+            return Err("Nodes vector is empty, missing NIL node at index 0".to_string());
+        }
+        let nil = &self.nodes[0];
+        if nil.color != Color::Black {
+            return Err(format!(
+                "NIL node (index 0) must be Black, but is {:?}",
+                nil.color
+            ));
+        }
+        if nil.left != 0 || nil.right != 0 {
+            return Err(format!(
+                "NIL node (index 0) must have left=0 and right=0, found left={}, right={}",
+                nil.left, nil.right
+            ));
+        }
+        if nil.subtree_length != 0 || nil.left_subtree_length != 0 || nil.length != 0 {
+            return Err(format!(
+                "NIL node (index 0) must have length=0 and subtree_lengths=0, found length={}, subtree_len={}, left_subtree_len={}",
+                nil.length, nil.subtree_length, nil.left_subtree_length
+            ));
+        }
+
+        // 2. If tree is empty (root == 0)
+        let root = self.red_black_tree.root_node;
+        if root == 0 {
+            if self.red_black_tree.black_height != 0 {
+                return Err(format!(
+                    "Empty tree must have black_height 0, found {}",
+                    self.red_black_tree.black_height
+                ));
+            }
+            return Ok(());
+        }
+
+        if root >= self.nodes.len() {
+            return Err(format!(
+                "Root node index {} is out of bounds (nodes len {})",
+                root,
+                self.nodes.len()
+            ));
+        }
+
+        // 3. Root property: Root must be Black
+        if self.nodes[root].color != Color::Black {
+            return Err(format!(
+                "Root node {} must be Black, but is {:?}",
+                root, self.nodes[root].color
+            ));
+        }
+
+        // 4. Root parent must be 0
+        if self.nodes[root].parent != 0 {
+            return Err(format!(
+                "Root node {} must have parent 0, but has parent {}",
+                root, self.nodes[root].parent
+            ));
+        }
+
+        // 5. Reachability, cycle detection, and parent-child consistency
+        let mut visited = std::collections::HashSet::new();
+        self.validate_node_structure(root, &mut visited)?;
+
+        // 6. Red-Black Rule: No two consecutive Red nodes (Red node has Black children and Black parent)
+        for &idx in &visited {
+            let node = &self.nodes[idx];
+            if node.color == Color::Red {
+                if node.parent != 0 && self.nodes[node.parent].color == Color::Red {
+                    return Err(format!(
+                        "Red-Red violation: Red node {} has Red parent {}",
+                        idx, node.parent
+                    ));
+                }
+                if node.left != 0 && self.nodes[node.left].color == Color::Red {
+                    return Err(format!(
+                        "Red-Red violation: Red node {} has Red left child {}",
+                        idx, node.left
+                    ));
+                }
+                if node.right != 0 && self.nodes[node.right].color == Color::Red {
+                    return Err(format!(
+                        "Red-Red violation: Red node {} has Red right child {}",
+                        idx, node.right
+                    ));
+                }
+            }
+        }
+
+        // 7. Red-Black Rule: Black Height consistency across all paths to NIL leaves
+        let computed_bh = self.validate_black_height(root)?;
+        if computed_bh != self.red_black_tree.black_height {
+            return Err(format!(
+                "Tree black_height attribute ({}) does not match computed black height ({})",
+                self.red_black_tree.black_height, computed_bh
+            ));
+        }
+
+        // 8. Augmented PieceTree metadata: subtree_length and left_subtree_length
+        for &idx in &visited {
+            let node = &self.nodes[idx];
+            let left_len = self.nodes[node.left].subtree_length;
+            let right_len = self.nodes[node.right].subtree_length;
+            let expected_subtree_len = left_len + right_len + node.length;
+
+            if node.left_subtree_length != left_len {
+                return Err(format!(
+                    "Node {} left_subtree_length is {}, but left child ({}) subtree_length is {}",
+                    idx, node.left_subtree_length, node.left, left_len
+                ));
+            }
+            if node.subtree_length != expected_subtree_len {
+                return Err(format!(
+                    "Node {} subtree_length is {}, but expected left({}) + right({}) + length({}) = {}",
+                    idx,
+                    node.subtree_length,
+                    left_len,
+                    right_len,
+                    node.length,
+                    expected_subtree_len
+                ));
+            }
+
+            // Buffer bounds check
+            match node.buffer_type {
+                BufferType::Original => {
+                    if node.start + node.length > self.original.len() {
+                        return Err(format!(
+                            "Node {} slice [{}..{}] exceeds original buffer length {}",
+                            idx,
+                            node.start,
+                            node.start + node.length,
+                            self.original.len()
+                        ));
+                    }
+                }
+                BufferType::Add => {
+                    if node.start + node.length > self.add.len() {
+                        return Err(format!(
+                            "Node {} slice [{}..{}] exceeds add buffer length {}",
+                            idx,
+                            node.start,
+                            node.start + node.length,
+                            self.add.len()
+                        ));
+                    }
+                }
+            }
+        }
+
+        // 9. In-order text length consistency
+        let root_subtree_len = self.nodes[root].subtree_length;
+        let actual_text_len = self.get_text().len();
+        if root_subtree_len != actual_text_len {
+            return Err(format!(
+                "Root subtree_length ({}) does not match get_text() length ({})",
+                root_subtree_len, actual_text_len
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn validate_node_structure(
+        &self,
+        idx: usize,
+        visited: &mut std::collections::HashSet<usize>,
+    ) -> Result<(), String> {
+        if idx == 0 {
+            return Ok(());
+        }
+        if idx >= self.nodes.len() {
+            return Err(format!(
+                "Node index {} is out of bounds (len: {})",
+                idx,
+                self.nodes.len()
+            ));
+        }
+        if !visited.insert(idx) {
+            return Err(format!(
+                "Cycle detected in tree: node {} visited more than once",
+                idx
+            ));
+        }
+
+        let node = &self.nodes[idx];
+        if node.left != 0 {
+            if node.left >= self.nodes.len() {
+                return Err(format!(
+                    "Node {} left child {} is out of bounds",
+                    idx, node.left
+                ));
+            }
+            if self.nodes[node.left].parent != idx {
+                return Err(format!(
+                    "Parent link mismatch: node {} left child is {}, but node {} parent is {}",
+                    idx, node.left, node.left, self.nodes[node.left].parent
+                ));
+            }
+            self.validate_node_structure(node.left, visited)?;
+        }
+
+        if node.right != 0 {
+            if node.right >= self.nodes.len() {
+                return Err(format!(
+                    "Node {} right child {} is out of bounds",
+                    idx, node.right
+                ));
+            }
+            if self.nodes[node.right].parent != idx {
+                return Err(format!(
+                    "Parent link mismatch: node {} right child is {}, but node {} parent is {}",
+                    idx, node.right, node.right, self.nodes[node.right].parent
+                ));
+            }
+            self.validate_node_structure(node.right, visited)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_black_height(&self, idx: usize) -> Result<usize, String> {
+        if idx == 0 {
+            return Ok(0);
+        }
+        let node = &self.nodes[idx];
+        let left_bh = self.validate_black_height(node.left)?;
+        let right_bh = self.validate_black_height(node.right)?;
+
+        if left_bh != right_bh {
+            return Err(format!(
+                "Black height mismatch at node {}: left subtree black height is {}, right subtree black height is {}",
+                idx, left_bh, right_bh
+            ));
+        }
+
+        let is_black = if node.color == Color::Black { 1 } else { 0 };
+        Ok(left_bh + is_black)
+    }
+
+    /// Panics if any Red-Black Tree or PieceTree invariant is violated.
+    pub fn assert_invariants(&self) {
+        if let Err(err) = self.validate_invariants() {
+            panic!(
+                "Red-Black Tree invariant violated: {}\nTree structure:\n{}",
+                err,
+                self.debug_dump()
+            );
+        }
+    }
+
+    /// Returns the number of active nodes in the tree (excluding NIL node).
+    pub fn node_count(&self) -> usize {
+        let mut count = 0;
+        let mut stack = vec![self.red_black_tree.root_node];
+        while let Some(idx) = stack.pop() {
+            if idx != 0 && idx < self.nodes.len() {
+                count += 1;
+                stack.push(self.nodes[idx].left);
+                stack.push(self.nodes[idx].right);
+            }
+        }
+        count
+    }
+
+    /// Returns the maximum height/depth of the tree from root to leaf.
+    pub fn tree_height(&self) -> usize {
+        fn depth(nodes: &[Node], idx: usize) -> usize {
+            if idx == 0 {
+                0
+            } else {
+                1 + depth(nodes, nodes[idx].left).max(depth(nodes, nodes[idx].right))
+            }
+        }
+        depth(&self.nodes, self.red_black_tree.root_node)
+    }
+
+    /// Returns the tree's recorded black height.
+    pub fn black_height(&self) -> usize {
+        self.red_black_tree.black_height
+    }
+
+    /// Returns root node index.
+    pub fn root_node_index(&self) -> usize {
+        self.red_black_tree.root_node
+    }
+
+    /// Returns the root node's subtree_length metadata, or 0 if tree is empty.
+    pub fn root_subtree_length(&self) -> usize {
+        if self.red_black_tree.root_node != 0 && self.red_black_tree.root_node < self.nodes.len() {
+            self.nodes[self.red_black_tree.root_node].subtree_length
+        } else {
+            0
+        }
+    }
+
+    /// Returns the total sum of `length` across all active nodes in the tree.
+    pub fn sum_node_lengths(&self) -> usize {
+        let mut total = 0;
+        let mut stack = vec![self.red_black_tree.root_node];
+        while let Some(idx) = stack.pop() {
+            if idx != 0 && idx < self.nodes.len() {
+                total += self.nodes[idx].length;
+                stack.push(self.nodes[idx].left);
+                stack.push(self.nodes[idx].right);
+            }
+        }
+        total
+    }
+
+    /// Returns detailed metadata for all reachable active nodes in the tree.
+    pub fn get_all_nodes_info(&self) -> Vec<NodeInfo> {
+        let mut result = Vec::new();
+        let mut stack = vec![self.red_black_tree.root_node];
+        while let Some(idx) = stack.pop() {
+            if idx != 0 && idx < self.nodes.len() {
+                let n = &self.nodes[idx];
+                result.push(NodeInfo {
+                    index: idx,
+                    length: n.length,
+                    subtree_length: n.subtree_length,
+                    left_subtree_length: n.left_subtree_length,
+                    left: n.left,
+                    right: n.right,
+                    parent: n.parent,
+                    is_red: n.color == Color::Red,
+                });
+                stack.push(n.left);
+                stack.push(n.right);
+            }
+        }
+        result
+    }
+
+    /// Generates a visual debug dump of the tree hierarchy.
+    pub fn debug_dump(&self) -> String {
+        let mut s = String::new();
+        s.push_str(&format!(
+            "Tree [root={}, black_height={}, nodes_len={}, doc_len={}]:\n",
+            self.red_black_tree.root_node,
+            self.red_black_tree.black_height,
+            self.nodes.len(),
+            if self.red_black_tree.root_node != 0
+                && self.red_black_tree.root_node < self.nodes.len()
+            {
+                self.nodes[self.red_black_tree.root_node].subtree_length
+            } else {
+                0
+            }
+        ));
+        self.dump_node(self.red_black_tree.root_node, 0, &mut s, "ROOT");
+        s
+    }
+
+    fn dump_node(&self, idx: usize, indent: usize, out: &mut String, prefix: &str) {
+        let pad = "  ".repeat(indent);
+        if idx == 0 {
+            out.push_str(&format!("{}{} NIL (0)\n", pad, prefix));
+            return;
+        }
+        if idx >= self.nodes.len() {
+            out.push_str(&format!("{}{} INVALID_IDX ({})\n", pad, prefix, idx));
+            return;
+        }
+        let node = &self.nodes[idx];
+        let color_char = match node.color {
+            Color::Red => "RED",
+            Color::Black => "BLACK",
+        };
+        let buf_name = match node.buffer_type {
+            BufferType::Original => "Orig",
+            BufferType::Add => "Add",
+        };
+        out.push_str(&format!(
+            "{}{} [{}] Node#{}: color={}, buf={}[{}..{}], len={}, sub_len={}, left_sub_len={}, parent={}\n",
+            pad, prefix, color_char, idx, color_char, buf_name, node.start, node.start + node.length,
+            node.length, node.subtree_length, node.left_subtree_length, node.parent
+        ));
+        self.dump_node(node.left, indent + 1, out, "L--");
+        self.dump_node(node.right, indent + 1, out, "R--");
+    }
+}
+
+/// Metadata snapshot for a node in the Red-Black tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeInfo {
+    pub index: usize,
+    pub length: usize,
+    pub subtree_length: usize,
+    pub left_subtree_length: usize,
+    pub left: usize,
+    pub right: usize,
+    pub parent: usize,
+    pub is_red: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
